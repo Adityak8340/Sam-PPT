@@ -36,6 +36,7 @@ class PPTGenerator:
         # Set slide dimensions (16:9 widescreen)
         self.prs.slide_width = Inches(13.333)
         self.prs.slide_height = Inches(7.5)
+        self.input_image_path: Optional[str] = None
     
     def create_presentation(self, input_image_path: str, 
                            search_results: list[dict],
@@ -53,6 +54,9 @@ class PPTGenerator:
         Returns:
             Path to the saved presentation
         """
+        # Store input image for use in slides as fallback
+        self.input_image_path = input_image_path
+        
         # Create title slide
         self._add_title_slide(input_image_path)
         
@@ -240,7 +244,7 @@ class PPTGenerator:
             y_position += Inches(0.9)
     
     def _add_website_slide(self, index: int, _result: dict, data: WebPageData):
-        """Add detailed slide for a single website"""
+        """Add detailed slide for a single website - always includes image and text"""
         slide_layout = self.prs.slide_layouts[6]
         slide = self.prs.slides.add_slide(slide_layout)
         
@@ -267,42 +271,25 @@ class PPTGenerator:
         title_para.font.color.rgb = self.COLORS['white']
         
         # Two-column layout
-        # Left column: Screenshot
+        # Left column: Screenshot or Input Image (always show an image)
+        image_added = False
+        
+        # Try screenshot first
         if data.screenshot_path and os.path.exists(data.screenshot_path):
-            try:
-                img = Image.open(data.screenshot_path)
-                # Scale to fit
-                max_width, max_height = 500, 350
-                img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
-                
-                img_bytes = BytesIO()
-                img.save(img_bytes, format='PNG')
-                img_bytes.seek(0)
-                
-                img_width = Inches(img.width / 96)
-                img_height = Inches(img.height / 96)
-                
-                # Add border
-                border = slide.shapes.add_shape(
-                    MSO_SHAPE.RECTANGLE,
-                    Inches(0.4), Inches(1.5),
-                    img_width + Inches(0.2), img_height + Inches(0.2)
-                )
-                border.fill.solid()
-                border.fill.fore_color.rgb = self.COLORS['light']
-                border.line.color.rgb = RGBColor(0xdd, 0xdd, 0xdd)
-                
-                slide.shapes.add_picture(
-                    img_bytes, Inches(0.5), Inches(1.6),
-                    img_width, img_height
-                )
-                
-            except Exception:
-                self._add_placeholder(slide, Inches(0.5), Inches(1.6), 
-                                     Inches(5), Inches(3.5), "Screenshot unavailable")
-        else:
+            image_added = self._add_image_to_slide(
+                slide, data.screenshot_path, "Website Screenshot"
+            )
+        
+        # If no screenshot, use the input image as fallback
+        if not image_added and self.input_image_path and os.path.exists(self.input_image_path):
+            image_added = self._add_image_to_slide(
+                slide, self.input_image_path, "Product Image"
+            )
+        
+        # If still no image, add placeholder
+        if not image_added:
             self._add_placeholder(slide, Inches(0.5), Inches(1.6), 
-                                 Inches(5), Inches(3.5), "Screenshot unavailable")
+                                 Inches(5), Inches(3.5), "Image unavailable")
         
         # Right column: Content
         content_x = Inches(6.5)
@@ -410,6 +397,57 @@ class PPTGenerator:
             error_para.text = f"⚠️ Note: {data.error}"
             error_para.font.size = Pt(10)
             error_para.font.color.rgb = RGBColor(0xdc, 0x35, 0x45)
+    
+    def _add_image_to_slide(self, slide, image_path: str, label: str) -> bool:
+        """Add an image to a slide with a label. Returns True if successful."""
+        try:
+            img = Image.open(image_path)
+            # Scale to fit
+            max_width, max_height = 500, 350
+            img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+            
+            img_bytes = BytesIO()
+            img_format = 'PNG' if image_path.lower().endswith('.png') else 'JPEG'
+            if img.mode == 'RGBA' and img_format == 'JPEG':
+                img = img.convert('RGB')
+            img.save(img_bytes, format=img_format)
+            img_bytes.seek(0)
+            
+            img_width = Inches(img.width / 96)
+            img_height = Inches(img.height / 96)
+            
+            # Add border
+            border = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                Inches(0.4), Inches(1.5),
+                img_width + Inches(0.2), img_height + Inches(0.2)
+            )
+            border.fill.solid()
+            border.fill.fore_color.rgb = self.COLORS['light']
+            border.line.color.rgb = RGBColor(0xdd, 0xdd, 0xdd)
+            
+            slide.shapes.add_picture(
+                img_bytes, Inches(0.5), Inches(1.6),
+                img_width, img_height
+            )
+            
+            # Add label below image
+            label_box = slide.shapes.add_textbox(
+                Inches(0.5), Inches(1.6) + img_height + Inches(0.1),
+                img_width, Inches(0.3)
+            )
+            label_frame = label_box.text_frame
+            label_para = label_frame.paragraphs[0]
+            label_para.text = label
+            label_para.font.size = Pt(10)
+            label_para.font.italic = True
+            label_para.font.color.rgb = self.COLORS['text']
+            label_para.alignment = PP_ALIGN.CENTER
+            
+            return True
+            
+        except Exception:
+            return False
     
     def _add_placeholder(self, slide, left, top, width, height, text: str):
         """Add a placeholder shape with text"""

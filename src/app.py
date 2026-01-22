@@ -339,7 +339,9 @@ def run_image_search(progress_bar, status_text, num_results: int) -> list[dict] 
     search_results = search_image(st.session_state.image_path, num_results=num_results)
     
     if not search_results:
-        st.warning("⚠️ No results found. Try a different image or the image might be too unique.")
+        st.error("""
+        ⚠️ **No search results found!**
+        """)
         st.session_state.processing = False
         return None
     
